@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MotoStudent · Telemetria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0D0F14;
+    --bg2:      #131720;
+    --bg3:      #1A1F2E;
+    --border:   #1E2330;
+    --text:     #C8CDD8;
+    --muted:    #5A6070;
+    --accent:   #088a17;
+    --accent2:  #00D4FF;
+    --danger:   #FF4560;
+    --font:     'Inter', sans-serif;
+    --mono:     'JetBrains Mono', monospace;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+
+  /* ── LAYOUT ── */
+  .shell { display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 48px 1fr; height: 100vh; }
+
+  /* Header */
+  header {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  header .logo {
+    font-family: var(--mono); font-weight: 600; font-size: 13px;
+    color: var(--accent); letter-spacing: 0.04em; white-space: nowrap;
+  }
+  header .sep { width: 1px; height: 20px; background: var(--border); }
+  header .run-badges { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+  .run-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 3px;
+    background: var(--bg3); border: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px;
+  }
+  .run-badge .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .run-badge .rm { cursor: pointer; color: var(--muted); margin-left: 4px; }
+  .run-badge .rm:hover { color: var(--danger); }
+
+  /* Sidebar */
+  aside {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-label { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+
+  /* Drop zone */
+  .dropzone {
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: rgba(232,255,0,.04); color: var(--text); }
+  .dropzone input { display: none; }
+  .dropzone .icon { font-size: 20px; margin-bottom: 6px; }
+
+  /* Signal list */
+  .signal-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .signal-list::-webkit-scrollbar { width: 4px; }
+  .signal-list::-webkit-scrollbar-track { background: transparent; }
+  .signal-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .sig-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 16px; cursor: pointer;
+    transition: background .15s;
+    user-select: none;
+  }
+  .sig-item:hover { background: var(--bg3); }
+  .sig-item.active { background: rgba(232,255,0,.06); }
+  .sig-checkbox {
+    width: 14px; height: 14px; border-radius: 2px;
+    border: 1px solid var(--border); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, border-color .15s;
+  }
+  .sig-item.active .sig-checkbox { background: var(--accent); border-color: var(--accent); }
+  .sig-checkbox::after { content: ''; display: none; width: 8px; height: 5px; border-left: 2px solid #000; border-bottom: 2px solid #000; transform: rotate(-45deg) translate(1px,-1px); }
+  .sig-item.active .sig-checkbox::after { display: block; }
+  .sig-name { font-size: 12px; color: var(--text); }
+  .sig-unit { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: auto; }
+
+  /* Main */
+  main {
+    overflow-y: auto;
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 16px;
+    background: var(--bg);
+  }
+  main::-webkit-scrollbar { width: 4px; }
+  main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Stats bar */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+  }
+  .stat-label { font-size: 10px; color: var(--muted); margin-bottom: 6px; }
+  .stat-values { display: flex; flex-direction: column; gap: 3px; }
+  .stat-val {
+    font-family: var(--mono); font-size: 16px; font-weight: 600;
+    display: flex; align-items: baseline; gap: 5px;
+  }
+  .stat-val .unit { font-size: 10px; color: var(--muted); font-weight: 400; }
+  .stat-val .run-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Chart panels */
+  .chart-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .chart-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chart-title { font-size: 12px; font-weight: 500; color: var(--text); }
+  .chart-unit { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .chart-body { padding: 8px 14px 12px; position: relative; height: 220px; }
+
+  /* Empty state */
+  .empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%;
+    gap: 10px;
+    color: var(--muted);
+    text-align: center;
+    padding: 40px;
+  }
+  .empty .big { font-size: 32px; }
+  .empty p { font-size: 13px; line-height: 1.6; }
+
+  /* Loading */
+  .loading {
+    display: none; position: fixed; inset: 0;
+    background: rgba(13,15,20,.85);
+    align-items: center; justify-content: center;
+    z-index: 100; flex-direction: column; gap: 12px;
+    font-family: var(--mono); color: var(--accent);
+  }
+  .loading.show { display: flex; }
+  .spinner {
+    width: 28px; height: 28px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <header>
+    <img src="mslogo.jpg" style="height:28px;">mslogo
+    <div class="sep"></div>
+    <div class="run-badges" id="runBadges"><span style="color:var(--muted);font-size:11px">nenhuma run carregada</span></div>
+  </header>
+
+  <aside>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Ficheiros</div>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".csv" multiple>
+        <div class="icon">⊕</div>
+        Arrasta CSVs aqui<br>ou clica para escolher
+      </label>
+    </div>
+
+    <div class="sidebar-section" style="padding-bottom:6px">
+      <div class="sidebar-label">Sinais</div>
+    </div>
+    <div class="signal-list" id="signalList"></div>
+  </aside>
+
+  <main id="main">
+    <div class="empty" id="emptyState">
+      <div class="big">◈</div>
+      <p>Carrega um ou mais ficheiros CSV exportados pelo Kvaser.<br>Depois selecciona os sinais que queres comparar.</p>
+    </div>
+  </main>
+</div>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <span id="loadingText">A processar...</span>
+</div>
+
+<script>
+// ── CONSTANTES ──────────────────────────────────────────────────────────────
+const THROTTLE_V_MAX = 2.0;
+
+// Mapa: nome_interno -> { label, unit, colIndex (0-based, coluna do valor) }
+const SIGNAL_MAP = [
+  { key: 'Target_Id_A',        label: 'Target Id',         unit: 'A',   vi: 1  },
+  { key: 'Id_A',               label: 'Id',                unit: 'A',   vi: 4  },
+  { key: 'Max_Velocity_RPM',   label: 'Max Velocity',      unit: 'RPM', vi: 7  },
+  { key: 'Battery_Current_A',  label: 'Corrente Bateria',  unit: 'A',   vi: 10 },
+  { key: 'Actual_Velocity_RPM',label: 'Velocidade',        unit: 'RPM', vi: 13 },
+  { key: 'Torque_Actual',      label: 'Torque Actual',     unit: 'Nm',  vi: 16 },
+  { key: 'Motor_Temp_C',       label: 'Temp. Motor',       unit: '°C',  vi: 19 },
+  { key: 'Max_Power_Torque',   label: 'Max Power Torque',  unit: 'Nm',  vi: 22 },
+  { key: 'Capacitor_Voltage_V',label: 'Tensão Lookup',     unit: 'V',   vi: 25 },
+  { key: 'Heatsink_Temp_C',    label: 'Temp. Heatsink',    unit: '°C',  vi: 28 },
+  { key: 'Uq_V',               label: 'Uq',                unit: 'V',   vi: 31 },
+  { key: 'Voltage_Modulation', label: 'Modulação Tensão',  unit: '%',   vi: 34 },
+  { key: 'Torque_Demand',      label: 'Torque Demand',     unit: 'Nm',  vi: 37 },
+  { key: 'Throttle_Perc',      label: 'Acelerador',        unit: '%',   vi: 40, isThrottle: true },
+  { key: 'Bus_Voltage_V',      label: 'Tensão Barramento', unit: 'V',   vi: 43 },
+  { key: 'Target_Iq_A',        label: 'Target Iq',         unit: 'A',   vi: 46 },
+  { key: 'Ud_V',               label: 'Ud',                unit: 'V',   vi: 49 },
+  { key: 'Iq_A',               label: 'Iq',                unit: 'A',   vi: 52 },
+];
+
+// Sinais activos por defeito
+const DEFAULT_ACTIVE = new Set(['Actual_Velocity_RPM','Throttle_Perc','Iq_A','Motor_Temp_C','Torque_Actual']);
+
+// Paleta de runs (até 6)
+const RUN_COLORS = ['#E8FF00','#00D4FF','#FF4560','#00E396','#FF9800','#AB47BC'];
+
+// ── ESTADO ───────────────────────────────────────────────────────────────────
+let runs = [];          // [{ name, color, data: { key -> [{x,y}] }, stats }]
+let activeSignals = new Set(DEFAULT_ACTIVE);
+let charts = {};        // key -> Chart instance
+
+// ── PARSE CSV ────────────────────────────────────────────────────────────────
+function parseKvaserCSV(text, fileName) {
+  const result = Papa.parse(text, { skipEmptyLines: false });
+  const rows = result.data;
+  if (rows.length < 2) return null;
+
+  const data = {};
+  for (const sig of SIGNAL_MAP) {
+    const ti = sig.vi - 1; // coluna tempo = vi-1
+    const vi = sig.vi;
+    const pts = [];
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const t = parseFloat(row[ti]);
+      let v = parseFloat(sig.isThrottle ? row[vi] : row[vi]);
+      if (isNaN(t) || isNaN(v)) continue;
+      if (sig.isThrottle) v = Math.min(100, Math.max(0, (v / THROTTLE_V_MAX) * 100));
+      if (sig.key === 'Iq_A' && Math.abs(v) < 4) v = 0;
+      pts.push({ x: t, y: v });
+    }
+    data[sig.key] = pts;
+  }
+
+  // Stats
+  const vel  = data['Actual_Velocity_RPM'].map(p => p.y);
+  const temp = data['Motor_Temp_C'].map(p => p.y);
+  const iq   = data['Iq_A'].map(p => p.y);
+  const ibat = data['Battery_Current_A'].map(p => p.y);
+
+  // duração
+  const allTimes = Object.values(data).flat().map(p => p.x).filter(v => !isNaN(v));
+  const tMin = Math.min(...allTimes), tMax = Math.max(...allTimes);
+  const duracao = tMax - tMin;
+
+  // throttle >80%
+  const thrPts = data['Throttle_Perc'];
+  let throttle80 = 0;
+  for (let i = 1; i < thrPts.length; i++) {
+    if (thrPts[i-1].y > 80) throttle80 += thrPts[i].x - thrPts[i-1].x;
+  }
+
+  // energia simples (Vcap * Ibat)
+  const vcap = data['Bus_Voltage_V'], ibatPts = data['Battery_Current_A'];
+  let energiaWh = 0;
+  if (vcap.length && ibatPts.length) {
+    const merged = vcap.map(p => {
+      const near = ibatPts.reduce((a,b) => Math.abs(b.x-p.x) < Math.abs(a.x-p.x) ? b : a);
+      return { t: p.x, p: p.y * near.y };
+    }).sort((a,b) => a.t - b.t);
+    for (let i = 1; i < merged.length; i++)
+      energiaWh += merged[i].p * (merged[i].t - merged[i-1].t);
+    energiaWh = Math.abs(energiaWh) / 3600;
+  }
+
+  return {
+    name: fileName.replace(/\.csv$/i, ''),
+    data,
+    stats: {
+      duracao,
+      velMax:    vel.length  ? Math.max(...vel)  : 0,
+      tempMax:   temp.length ? Math.max(...temp) : 0,
+      iqPico:    iq.length   ? Math.max(...iq.map(Math.abs)) : 0,
+      ibatPico:  ibat.length ? Math.max(...ibat.map(Math.abs)) : 0,
+      energiaWh,
+      throttle80,
+      throttle80Perc: duracao > 0 ? (throttle80 / duracao * 100) : 0,
+    }
+  };
+}
+
+// ── RENDER ───────────────────────────────────────────────────────────────────
+function renderAll() {
+  renderBadges();
+  renderStats();
+  renderCharts();
+}
+
+function renderBadges() {
+  const el = document.getElementById('runBadges');
+  if (!runs.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:11px">nenhuma run carregada</span>';
+    return;
+  }
+  el.innerHTML = runs.map((r,i) => `
+    <div class="run-badge">
+      <div class="dot" style="background:${r.color}"></div>
+      <span>${r.name}</span>
+      <span class="rm" onclick="removeRun(${i})" title="Remover">✕</span>
+    </div>`).join('');
+}
+
+function renderStats() {
+  const main = document.getElementById('main');
+  document.getElementById('emptyState')?.remove();
+
+  let statsBar = document.getElementById('statsBar');
+  if (!runs.length) {
+    if (statsBar) statsBar.remove();
+    main.innerHTML = `<div class="empty" id="emptyState">
+      <div class="big">◈</div>
+      <p>Carrega um ou mais ficheiros CSV exportados pelo Kvaser.<br>Depois selecciona os sinais que queres comparar.</p>
+    </div>`;
+    return;
+  }
+
+  if (!statsBar) {
+    statsBar = document.createElement('div');
+    statsBar.id = 'statsBar';
+    statsBar.className = 'stats-bar';
+    main.prepend(statsBar);
+  }
+
+  const statDefs = [
+    { key: 'duracao',         label: 'Duração',           unit: 's',  fmt: v => v.toFixed(1) },
+    { key: 'velMax',          label: 'Vel. Máxima',        unit: 'RPM',fmt: v => Math.round(v) },
+    { key: 'tempMax',         label: 'Temp. Motor Máx.',   unit: '°C', fmt: v => v.toFixed(1) },
+    { key: 'iqPico',          label: 'Iq Pico',            unit: 'A',  fmt: v => v.toFixed(1) },
+    { key: 'ibatPico',        label: 'Corrente Bat. Pico', unit: 'A',  fmt: v => v.toFixed(1) },
+    { key: 'energiaWh',       label: 'Energia',            unit: 'Wh', fmt: v => v.toFixed(2) },
+    { key: 'throttle80Perc',  label: 'Throttle >80%',      unit: '%',  fmt: v => v.toFixed(1) },
+  ];
+
+  statsBar.innerHTML = statDefs.map(s => `
+    <div class="stat-card">
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-values">
+        ${runs.map(r => `
+          <div class="stat-val">
+            <div class="run-dot" style="background:${r.color}"></div>
+            ${s.fmt(r.stats[s.key])}
+            <span class="unit">${s.unit}</span>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function getGlobalTimeRange() {
+  let tMin = Infinity, tMax = -Infinity;
+  for (const run of runs) {
+    for (const pts of Object.values(run.data)) {
+      for (const p of pts) {
+        if (p.x < tMin) tMin = p.x;
+        if (p.x > tMax) tMax = p.x;
+      }
+    }
+  }
+  return { tMin, tMax };
+}
+
+function renderCharts() {
+  const main = document.getElementById('main');
+
+  // Remover painéis que já não estão activos
+  for (const key of Object.keys(charts)) {
+    if (!activeSignals.has(key)) {
+      charts[key].destroy();
+      delete charts[key];
+      document.getElementById(`panel-${key}`)?.remove();
+    }
+  }
+
+  if (!runs.length) return;
+
+  const { tMin, tMax } = getGlobalTimeRange();
+  const tPad = (tMax - tMin) * 0.01;
+  // Garantir que o eixo X não inclui o zero (dados começam em ~35s)
+
+  for (const sig of SIGNAL_MAP) {
+    if (!activeSignals.has(sig.key)) continue;
+
+    let panel = document.getElementById(`panel-${sig.key}`);
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.className = 'chart-panel';
+      panel.id = `panel-${sig.key}`;
+      panel.innerHTML = `
+        <div class="chart-header">
+          <span class="chart-title">${sig.label}</span>
+          <span class="chart-unit">${sig.unit}</span>
+        </div>
+        <div class="chart-body"><canvas id="canvas-${sig.key}"></canvas></div>`;
+      main.appendChild(panel);
+    }
+
+    const canvas = document.getElementById(`canvas-${sig.key}`);
+    const datasets = runs.map(r => ({
+      label: r.name,
+      data: r.data[sig.key] || [],
+      borderColor: r.color,
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.2,
+    }));
+
+    // Destruir sempre e recriar para aplicar novos limites de X correctamente
+    if (charts[sig.key]) {
+      charts[sig.key].destroy();
+      delete charts[sig.key];
+    }
+
+    charts[sig.key] = new Chart(canvas, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        parsing: false,
+        plugins: {
+          legend: {
+            display: runs.length > 1,
+            labels: { color: '#5A6070', font: { family: 'JetBrains Mono', size: 10 }, boxWidth: 12, padding: 12 }
+          },
+          tooltip: {
+            mode: 'index', intersect: false,
+            backgroundColor: '#1A1F2E', borderColor: '#1E2330', borderWidth: 1,
+            titleColor: '#5A6070', bodyColor: '#C8CDD8',
+            titleFont: { family: 'JetBrains Mono', size: 10 },
+            bodyFont: { family: 'JetBrains Mono', size: 11 },
+            callbacks: {
+              title: items => `t = ${items[0].parsed.x.toFixed(3)} s`,
+              label: item => ` ${item.dataset.label}: ${item.parsed.y.toFixed(3)} ${sig.unit}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            min: tMin - tPad,
+            max: tMax + tPad,
+            beginAtZero: false,
+            bounds: 'data',
+            grid: { color: '#1E2330' },
+            ticks: { color: '#5A6070', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 10 }
+          },
+          y: {
+            grid: { color: '#1E2330' },
+            ticks: { color: '#5A6070', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 6 },
+            afterDataLimits(scale) {
+              const range = scale.max - scale.min;
+              const pad = range < 1e-6 ? 1 : range * 0.15;
+              scale.min -= pad;
+              scale.max += pad;
+            }
+          }
+        }
+      }
+    });
+  }
+}
+
+function renderSignalList() {
+  const list = document.getElementById('signalList');
+  list.innerHTML = SIGNAL_MAP.map(sig => `
+    <div class="sig-item ${activeSignals.has(sig.key) ? 'active' : ''}" onclick="toggleSignal('${sig.key}')">
+      <div class="sig-checkbox"></div>
+      <span class="sig-name">${sig.label}</span>
+      <span class="sig-unit">${sig.unit}</span>
+    </div>`).join('');
+}
+
+// ── INTERACÇÃO ────────────────────────────────────────────────────────────────
+function toggleSignal(key) {
+  if (activeSignals.has(key)) activeSignals.delete(key);
+  else activeSignals.add(key);
+  renderSignalList();
+  renderCharts();
+}
+
+function removeRun(i) {
+  runs.splice(i, 1);
+  // Reatribuir cores
+  runs.forEach((r, j) => r.color = RUN_COLORS[j % RUN_COLORS.length]);
+  renderAll();
+  renderSignalList();
+}
+
+async function loadFiles(files) {
+  const loading = document.getElementById('loading');
+  const loadingText = document.getElementById('loadingText');
+  loading.classList.add('show');
+
+  for (const file of files) {
+    loadingText.textContent = `A processar ${file.name}…`;
+    const text = await file.text();
+    const run = parseKvaserCSV(text, file.name);
+    if (run) {
+      run.color = RUN_COLORS[runs.length % RUN_COLORS.length];
+      runs.push(run);
+    }
+    await new Promise(r => setTimeout(r, 0)); // yield
+  }
+
+  loading.classList.remove('show');
+  renderSignalList();
+  renderAll();
+}
+
+// ── EVENTOS ───────────────────────────────────────────────────────────────────
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files.length) loadFiles(Array.from(e.target.files));
+  e.target.value = '';
+});
+
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'));
+  if (files.length) loadFiles(files);
+});
+
+// Init
+renderSignalList();
+</script>
+</body>
+</html>
